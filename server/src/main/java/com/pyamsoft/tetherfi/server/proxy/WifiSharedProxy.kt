@@ -100,7 +100,7 @@ internal constructor(
   }
 
   private fun resetState() {
-    overallState.update { it.copy(http = false, socks = false) }
+    overallState.update { it.copy(http = false, socks = false, netty = false) }
   }
 
   private suspend fun shutdownProxyServerWithCause(e: Throwable) {
@@ -418,10 +418,19 @@ internal constructor(
               killTimerJob?.cancelAndJoin()
               proxyJob?.stopProxyLoop()
             }
+
             // Stop dispatcher looper
             serverDispatcher.shutdown()
 
             // We will then await the onClosed() event
+            // but it may never come if the proxy server is in the ERROR state,
+            // so in that case fire it ourselves.
+            if (overallState.value.isReady(preferences)) {
+              Timber.d { "Awaiting proxy server close event..." }
+            } else {
+              Timber.d { "Manually firing Proxy CLOSE event!" }
+              broadcastProxyStop()
+            }
           }
         }
       }
