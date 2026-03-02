@@ -39,24 +39,24 @@ import io.netty.handler.codec.http.HttpVersion
 
 internal class Http1ProxyHandler
 internal constructor(
-    socketTagger: SocketTagger,
-    androidPreferredNetwork: Network?,
-    isDebug: Boolean,
-    serverSocketTimeout: ServerSocketTimeout,
+  socketTagger: SocketTagger,
+  androidPreferredNetwork: Network?,
+  isDebug: Boolean,
+  serverSocketTimeout: ServerSocketTimeout,
 ) :
-    DefaultProxyHandler(
-        socketTagger = socketTagger,
-        androidPreferredNetwork = androidPreferredNetwork,
-        isDebug = isDebug,
-        serverSocketTimeout = serverSocketTimeout,
-    ) {
+  DefaultProxyHandler(
+    socketTagger = socketTagger,
+    androidPreferredNetwork = androidPreferredNetwork,
+    isDebug = isDebug,
+    serverSocketTimeout = serverSocketTimeout,
+  ) {
 
   @CheckResult
   private fun createHttpErrorResponse(): HttpResponse {
     return DefaultFullHttpResponse(
-        HttpVersion.HTTP_1_1,
-        HttpResponseStatus.BAD_GATEWAY,
-        Unpooled.EMPTY_BUFFER,
+      HttpVersion.HTTP_1_1,
+      HttpResponseStatus.BAD_GATEWAY,
+      Unpooled.EMPTY_BUFFER,
     )
   }
 
@@ -74,14 +74,26 @@ internal constructor(
     val clientChannel = ctx.channel()
 
     val future =
-        newOutboundConnection(
-            isDebug = isDebug,
-            channel = clientChannel,
-            hostName = parsed.resolvedHostName,
-            port = parsed.resolvedPort,
-            socketTagger = socketTagger,
-            androidPreferredNetwork = androidPreferredNetwork,
-        )
+      newOutboundConnection(
+        isDebug = isDebug,
+        channel = clientChannel,
+        hostName = parsed.resolvedHostName,
+        port = parsed.resolvedPort,
+        socketTagger = socketTagger,
+        androidPreferredNetwork = androidPreferredNetwork,
+        onChannelOpened = { ch ->
+          val pipeline = ch.pipeline()
+
+          // Read from the REMOTE and send back to the PROXY
+          pipeline.addLast(
+            RelayHandler(
+              id = "HTTPS-CONNECT-INBOUND-${parsed.resolvedHostName}:${parsed.resolvedPort}",
+              writeToChannel = clientChannel,
+              serverSocketTimeout = serverSocketTimeout,
+            )
+          )
+        }
+      )
     val outbound = future.channel()
     future.addListener { future ->
       if (!future.isSuccess) {
@@ -102,24 +114,18 @@ internal constructor(
       // Remove our own handler
       pipeline.dropHandler(this::class)
 
-      // Add a relay for the internet outbound
+      // Read from the PROXY and send to the remote
       pipeline.addLast(
-          RelayHandler(
-              id = "HTTPS-CONNECT-${parsed.resolvedHostName}:${parsed.resolvedPort}",
-              clientChannel = outbound,
-              serverSocketTimeout = serverSocketTimeout,
-          )
+        RelayHandler(
+          id = "HTTPS-CONNECT-OUTBOUND-${parsed.resolvedHostName}:${parsed.resolvedPort}",
+          writeToChannel = outbound,
+          serverSocketTimeout = serverSocketTimeout,
+        )
       )
 
       // Then establish connection
+      Timber.d { "Write HTTPS connect to $parsed" }
       ctx.writeAndFlush(response)
-
-      // Hold onto this channel for future requests to immediately fire off to it
-      assignOutboundChannel(outbound)
-
-      // And then replay any previously seen messages that arrived BEFORE we were set up
-      // any future messages will go directly to the outbound now that the channel is held
-      replayQueuedMessages(outbound)
 
       // Remove the http server codec
       pipeline.dropHandler(HttpServerCodec::class)
@@ -135,20 +141,30 @@ internal constructor(
 
     val clientChannel = ctx.channel()
 
-    Timber.d { "Connect to $parsed" }
     val future =
-        newOutboundConnection(
-            isDebug = isDebug,
-            channel = clientChannel,
-            hostName = parsed.resolvedHostName,
-            port = parsed.resolvedPort,
-            socketTagger = socketTagger,
-            androidPreferredNetwork = androidPreferredNetwork,
-            onChannelOpened = { ch ->
-              // Our outbound client MUST speak HTTP
-              ch.pipeline().addLast(HttpClientCodec())
-            },
-        )
+      newOutboundConnection(
+        isDebug = isDebug,
+        channel = clientChannel,
+        hostName = parsed.resolvedHostName,
+        port = parsed.resolvedPort,
+        socketTagger = socketTagger,
+        androidPreferredNetwork = androidPreferredNetwork,
+        onChannelOpened = { ch ->
+          val pipeline = ch.pipeline()
+
+          // Must speak HTTP to replay the initial message
+          pipeline.addLast(HttpClientCodec())
+
+          // Read from the REMOTE and send back to the PROXY
+          pipeline.addLast(
+            RelayHandler(
+              id = "HTTP-FORWARD-INBOUND-${parsed.resolvedHostName}:${parsed.resolvedPort}",
+              writeToChannel = clientChannel,
+              serverSocketTimeout = serverSocketTimeout,
+            )
+          )
+        },
+      )
 
     val outbound = future.channel()
     future.addListener { future ->
@@ -170,20 +186,18 @@ internal constructor(
       // Remove our own handler
       pipeline.dropHandler(this::class)
 
-      // Add a relay for the internet outbound
+      // Read from the PROXY and send to REMOTE
       pipeline.addLast(
-          RelayHandler(
-              id = "HTTP-FORWARD-${parsed.resolvedHostName}:${parsed.resolvedPort}",
-              clientChannel = outbound,
-              serverSocketTimeout = serverSocketTimeout,
-          )
+        RelayHandler(
+          id = "HTTP-FORWARD-OUTBOUND-${parsed.resolvedHostName}:${parsed.resolvedPort}",
+          writeToChannel = outbound,
+          serverSocketTimeout = serverSocketTimeout,
+        )
       )
 
       // Replay the initial request
-      Timber.d { "REPLAY: $msg" }
-      outbound.writeAndFlush(msg).addListener {
-        Timber.d { "OUTBOUND: ${it.isSuccess} ${it.cause()}" }
-      }
+      Timber.d { "Forward connect to $parsed" }
+      outbound.writeAndFlush(msg)
 
       // Hold onto this channel for future requests to immediately fire off to it
       assignOutboundChannel(outbound)
@@ -191,6 +205,9 @@ internal constructor(
       // And then replay any previously seen messages that arrived BEFORE we were set up
       // any future messages will go directly to the outbound now that the channel is held
       replayQueuedMessages(outbound)
+
+      // All messages have been replayed, drop the client codec
+      pipeline.dropHandler(HttpClientCodec::class)
 
       // Remove the http server codec
       pipeline.dropHandler(HttpServerCodec::class)
@@ -260,7 +277,7 @@ internal constructor(
       // Port must look like a port
       val portString = hostAndPort.getOrNull(1)
       val port =
-          if (portString.isNullOrBlank()) fallbackPort else portString.toIntOrNull() ?: fallbackPort
+        if (portString.isNullOrBlank()) fallbackPort else portString.toIntOrNull() ?: fallbackPort
 
       // Find the first slash to start the path
       val pathStartIndex = hostAndMaybePath.indexOf("/")
@@ -277,9 +294,9 @@ internal constructor(
       }
 
       return HttpHostAndPort(
-          resolvedHostName = host,
-          resolvedPort = port,
-          proxyCorrectedFilePath = path,
+        resolvedHostName = host,
+        resolvedPort = port,
+        proxyCorrectedFilePath = path,
       )
     }
   }

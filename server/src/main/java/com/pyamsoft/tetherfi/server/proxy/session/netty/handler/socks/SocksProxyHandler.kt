@@ -122,7 +122,7 @@ internal constructor(
       pipeline.addLast(
           RelayHandler(
               id = "SOCKS${msg.version()}-CONNECT-${dstAddr}:${dstPort}",
-              clientChannel = outbound,
+              writeToChannel = outbound,
               serverSocketTimeout = serverSocketTimeout,
           )
       )

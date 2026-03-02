@@ -29,9 +29,9 @@ import java.util.concurrent.TimeUnit
 
 internal class RelayHandler
 internal constructor(
-    private val id: String,
-    private val clientChannel: Channel,
-    private val serverSocketTimeout: ServerSocketTimeout,
+  private val id: String,
+  private val writeToChannel: Channel,
+  private val serverSocketTimeout: ServerSocketTimeout,
 ) : ChannelInboundHandlerAdapter() {
 
   override fun channelRegistered(ctx: ChannelHandlerContext) {
@@ -55,8 +55,7 @@ internal constructor(
   }
 
   override fun channelRead(ctx: ChannelHandlerContext, msg: Any) {
-    Timber.d { "READ: $msg" }
-    if (!clientChannel.isActive) {
+    if (!writeToChannel.isActive) {
       return
     }
 
@@ -67,14 +66,14 @@ internal constructor(
       // TODO bandwidth limit enforcement
     }
 
-    clientChannel.writeAndFlush(msg)
+    writeToChannel.writeAndFlush(msg)
   }
 
   override fun channelWritabilityChanged(ctx: ChannelHandlerContext) {
     try {
       val isWritable = ctx.channel().isWritable
       Timber.d { "($id) Relay write changed: $ctx $isWritable" }
-      clientChannel.config().isAutoRead = isWritable
+      writeToChannel.config().isAutoRead = isWritable
     } finally {
       ctx.fireChannelWritabilityChanged()
     }
@@ -85,7 +84,7 @@ internal constructor(
       Timber.d { "($id) Close inactive relay channel: $ctx" }
     } finally {
       flushAndClose(ctx.channel())
-      flushAndClose(clientChannel)
+      flushAndClose(writeToChannel)
     }
   }
 

@@ -99,10 +99,7 @@ internal constructor(
       needsFlush = queued.isNotEmpty()
       if (needsFlush) {
         for (q in queued) {
-          Timber.d { "RELAY: $q" }
-          channel.write(q).addListener {
-            Timber.d { "RELAY OUTBOUND: ${it.isSuccess} ${it.cause()}" }
-          }
+          channel.write(q)
         }
       }
     } finally {
