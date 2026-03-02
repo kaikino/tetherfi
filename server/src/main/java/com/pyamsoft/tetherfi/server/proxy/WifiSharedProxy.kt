@@ -140,6 +140,10 @@ internal constructor(
                 status.set(RunningStatus.Stopping)
                 unreadyState(type)
               },
+              onClosed = {
+                Timber.d { "Proxy Server is Done!" }
+                broadcastProxyStop()
+              },
               onError = { e -> e.ifNotCancellation { handleServerLoopError(e = e, type = type) } },
           )
     } catch (e: Throwable) {
@@ -217,18 +221,17 @@ internal constructor(
     resetState()
   }
 
-  private suspend fun broadcastProxyStop() =
-      withContext(context = NonCancellable) {
-        enforcer.assertOffMainThread()
+  private fun broadcastProxyStop() {
+    enforcer.assertOffMainThread()
 
-        // Update status if we were running
-        if (status.get() is RunningStatus.Running) {
-          status.set(RunningStatus.Stopping)
-        }
+    // Update status if we were running
+    if (status.get() is RunningStatus.Running) {
+      status.set(RunningStatus.Stopping)
+    }
 
-        reset()
-        status.set(RunningStatus.NotRunning)
-      }
+    reset()
+    status.set(RunningStatus.NotRunning)
+  }
 
   private fun CoroutineScope.watchServerReadyStatus() {
     // When all proxy bits declare they are ready, the proxy status is "ready"
@@ -418,10 +421,7 @@ internal constructor(
             // Stop dispatcher looper
             serverDispatcher.shutdown()
 
-            // Broadcast server shutdown
-            broadcastProxyStop()
-
-            Timber.d { "Proxy Server is Done!" }
+            // We will then await the onClosed() event
           }
         }
       }

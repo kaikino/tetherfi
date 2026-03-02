@@ -111,6 +111,14 @@ fun StatusScreen(
           return@remember STATIC_HOTSPOT_ERROR
         }
 
+        // Otherwise if anyone is STOPPING we should let them finish
+        if (wiDiStatus is RunningStatus.Stopping) {
+          return@remember wiDiStatus
+        }
+        if (proxyStatus is RunningStatus.Stopping) {
+          return@remember proxyStatus
+        }
+
         // Otherwise just take the broadcast status
         //
         // The proxy may have issues starting up, but we should allow the screen to transition

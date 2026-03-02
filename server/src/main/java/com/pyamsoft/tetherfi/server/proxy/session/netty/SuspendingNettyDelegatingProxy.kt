@@ -32,6 +32,7 @@ class SuspendingNettyDelegatingProxy(
     serverSocketTimeout: ServerSocketTimeout,
     onOpened: () -> Unit,
     onClosing: () -> Unit,
+    onClosed: () -> Unit,
     onError: (Throwable) -> Unit,
 ) : SuspendingNettyProxy() {
 
@@ -47,6 +48,7 @@ class SuspendingNettyDelegatingProxy(
         serverSocketTimeout = serverSocketTimeout,
         onOpened = onOpened,
         onClosing = onClosing,
+        onClosed = onClosed,
         onError = onError,
     )
   }

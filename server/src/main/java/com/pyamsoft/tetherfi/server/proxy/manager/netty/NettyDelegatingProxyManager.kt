@@ -47,6 +47,7 @@ internal constructor(
       network: Network?,
       onOpened: suspend () -> Unit,
       onClosing: suspend () -> Unit,
+      onClosed: () -> Unit,
       onError: suspend (Throwable) -> Unit,
   ): SuspendingNettyProxy {
     return SuspendingNettyDelegatingProxy(
@@ -60,6 +61,7 @@ internal constructor(
         androidPreferredNetwork = network,
         onOpened = { launch { onOpened() } },
         onClosing = { launch { onClosing() } },
+        onClosed = { onClosed() },
         onError = { launch { onError(it) } },
     )
   }

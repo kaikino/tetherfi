@@ -101,12 +101,14 @@ protected constructor(
   private suspend fun handleServerClosing(
       scope: CoroutineScope,
       mutex: Mutex,
+      onClosing: suspend () -> Unit,
       sockets: MutableCollection<ASocket>,
   ) {
     prepareToDie(
         scope = scope,
         mutex = mutex,
         sockets = sockets,
+        onClosing = onClosing,
     )
 
     mutex.withLock {
@@ -133,6 +135,7 @@ protected constructor(
       scope: CoroutineScope,
       mutex: Mutex,
       sockets: MutableCollection<ASocket>,
+      onClosing: suspend () -> Unit,
   ) {
     closeAllSockets(
         scope = scope,
@@ -140,6 +143,7 @@ protected constructor(
         sockets = sockets,
     )
 
+    onClosing()
     onServerClosing()
   }
 
@@ -147,6 +151,7 @@ protected constructor(
       scope: CoroutineScope,
       mutex: Mutex,
       sockets: MutableCollection<ASocket>,
+      onClosing: suspend () -> Unit,
   ) {
     scope.launch(context = serverDispatcher.sideEffect) {
       serverStopConsumer.also { f ->
@@ -156,6 +161,7 @@ protected constructor(
               scope = scope,
               mutex = mutex,
               sockets = sockets,
+              onClosing = onClosing,
           )
         }
       }
@@ -166,6 +172,7 @@ protected constructor(
       scope: CoroutineScope,
       mutex: Mutex,
       sockets: MutableCollection<ASocket>,
+      onClosing: suspend () -> Unit,
   ) {
     periodicSocketCleanUp(
         scope = scope,
@@ -177,6 +184,7 @@ protected constructor(
         scope = scope,
         mutex = mutex,
         sockets = sockets,
+        onClosing = onClosing,
     )
   }
 
@@ -187,7 +195,11 @@ protected constructor(
    * done everything right this list should always be either empty or composed of closed sockets. We
    * should generally never see the "leftover socket" log message
    */
-  private suspend inline fun trackSockets(scope: CoroutineScope, block: (SocketTracker) -> Unit) {
+  private suspend inline fun trackSockets(
+      scope: CoroutineScope,
+      noinline onClosing: suspend () -> Unit,
+      block: (SocketTracker) -> Unit,
+  ) {
     val mutex = Mutex()
     val closeAllServerSockets = mutableSetOf<ASocket>()
 
@@ -195,6 +207,7 @@ protected constructor(
         scope = scope,
         mutex = mutex,
         sockets = closeAllServerSockets,
+        onClosing = onClosing,
     )
 
     try {
@@ -204,6 +217,7 @@ protected constructor(
       handleServerClosing(
           scope = scope,
           mutex = mutex,
+          onClosing = onClosing,
           sockets = closeAllServerSockets,
       )
     }
@@ -263,6 +277,7 @@ protected constructor(
       lock: Locker.Lock,
       onOpened: suspend () -> Unit,
       onClosing: suspend () -> Unit,
+      onClosed: () -> Unit,
       onError: suspend (Throwable) -> Unit,
   ) =
       withContext(context = serverDispatcher.primary) {
@@ -283,7 +298,10 @@ protected constructor(
                   onOpened()
 
                   // Track the sockets we open so that we can close them later
-                  trackSockets(scope = scope) { tracker ->
+                  trackSockets(
+                      scope = scope,
+                      onClosing = onClosing,
+                  ) { tracker ->
                     try {
                       runServer(
                           lock = lock,
@@ -298,7 +316,7 @@ protected constructor(
                     }
                   }
 
-                  onClosing()
+                  onClosed()
                 }
               },
           )

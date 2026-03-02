@@ -22,6 +22,8 @@ import com.pyamsoft.pydroid.core.requireNotNull
 import com.pyamsoft.tetherfi.core.Timber
 import com.pyamsoft.tetherfi.server.ServerSocketTimeout
 import com.pyamsoft.tetherfi.server.proxy.SocketTagger
+import com.pyamsoft.tetherfi.server.proxy.session.netty.NetworkBoundDatagramChannelFactory
+import com.pyamsoft.tetherfi.server.proxy.session.netty.NetworkBoundSocketChannelFactory
 import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.ProxyHandler
 import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.flushAndClose
 import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.newDatagramServer
@@ -38,6 +40,14 @@ import io.netty.handler.codec.socksx.v5.Socks5CommandStatus
 import io.netty.handler.timeout.IdleState
 import io.netty.handler.timeout.IdleStateEvent
 import io.netty.handler.timeout.IdleStateHandler
+import io.netty.resolver.ResolvedAddressTypes
+import io.netty.resolver.dns.AuthoritativeDnsServerCache
+import io.netty.resolver.dns.DefaultAuthoritativeDnsServerCache
+import io.netty.resolver.dns.DefaultDnsCache
+import io.netty.resolver.dns.DefaultDnsCnameCache
+import io.netty.resolver.dns.DnsCache
+import io.netty.resolver.dns.DnsCnameCache
+import io.netty.resolver.dns.DnsNameResolverBuilder
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -67,6 +77,77 @@ internal constructor(
   private val allKnownOutbounds = MutableStateFlow<Set<Channel>>(emptySet())
 
   private var id: String = "UDP-RELAY-UNKNOWN"
+
+  private fun resolveDestination(
+      ctx: ChannelHandlerContext,
+      msg: DatagramPacket,
+      addressType: Socks5AddressType,
+      originalDestinationAddress: String,
+      port: Int,
+      onResolved: (InetSocketAddress) -> Unit,
+  ) {
+    // We don't need to force resolve an IPv4, just continue
+    if (!isForcedIPv4Upstream || addressType == Socks5AddressType.IPv4) {
+      val destination = InetSocketAddress(originalDestinationAddress, port)
+      onResolved(destination)
+      return
+    }
+
+    // TODO(Peter): Currently our proxy ONLY works over IPv4
+    // We resolve the hostname on our Android device here via DNS
+    // and then we proxy the connection from our requesting client
+    //
+    // If we are unable to find an IPv4 address to use, we must fail
+    Timber.d { "Forcing UDP over IPv4 connection $addressType $originalDestinationAddress" }
+    val resolver =
+        DnsNameResolverBuilder(ctx.channel().eventLoop())
+            .datagramChannelFactory(
+                NetworkBoundDatagramChannelFactory(
+                    socketTagger = socketTagger,
+                    androidPreferredNetwork = androidPreferredNetwork,
+                )
+            )
+            .socketChannelFactory(
+                NetworkBoundSocketChannelFactory(
+                    socketTagger = socketTagger,
+                    androidPreferredNetwork = androidPreferredNetwork,
+                )
+            )
+            .resolveCache(DEFAULT_DNS_CACHE)
+            .cnameCache(DEFAULT_DNS_CNAME_CACHE)
+            .authoritativeDnsServerCache(DEFAULT_DNS_AUTHORITATIVE_SERVER_CACHE)
+            .resolvedAddressTypes(ResolvedAddressTypes.IPV4_ONLY)
+            .build()
+
+    resolver.resolve(originalDestinationAddress).addListener { future ->
+      // Close the resolver once we are done with this lookup
+      // we use custom cache implementations that never clear though to avoid having to
+      // re-lookup data
+      //
+      // Caches can be dropped via the static dropCaches() method once the server is closed
+      resolver.use {
+        if (future.isSuccess) {
+          val address = future.now.cast<Inet4Address>()
+          if (address != null) {
+            val destination = InetSocketAddress(address, port)
+            onResolved(destination)
+          } else {
+            Timber.w { "No IPv4 address could be found for dest=$originalDestinationAddress" }
+            Timber.w { "Currently SOCKS5 UDP-ASSOCIATE proxy only works over IPv4" }
+            sendErrorAndClose(ctx, msg)
+            return@addListener
+          }
+        } else {
+          Timber.e(future.cause()) {
+            "Unable to resolve IPv4 address for dest=$originalDestinationAddress"
+          }
+          Timber.w { "Currently SOCKS5 UDP-ASSOCIATE proxy only works over IPv4" }
+          sendErrorAndClose(ctx, msg)
+          return@addListener
+        }
+      }
+    }
+  }
 
   private fun unwrapUdpResponse(
       ctx: ChannelHandlerContext,
@@ -115,87 +196,66 @@ internal constructor(
     // We must retain this slice or the underlying buffer will be cleaned up too early
     val data = buf.readRetainedSlice(buf.readableBytes())
 
-    val destination: InetSocketAddress
-    if (isForcedIPv4Upstream) {
-      // TODO(Peter): Currently our proxy ONLY works over IPv4
-      // We resolve the hostname on our Android device here via DNS
-      // and then we proxy the connection from our requesting client
-      //
-      // If we are unable to find an IPv4 address to use, we must fail
-      val ipv4Address =
-          if (addrType == Socks5AddressType.IPv4) destinationAddr
-          else {
-            // TODO use netty non-blocking resolvers
-            Timber.d { "Forcing UDP over IPv4 connection $addrType $destinationAddr" }
-            InetAddress.getAllByName(destinationAddr)
-                // Only IPv4 addresses
-                .filterIsInstance<Inet4Address>()
-                // Pick a random one
-                .randomOrNull()
-                ?.hostAddress
-          }
+    // NOTE(Peter): Currently this tunnel only works over IPv4
+    //              If we receive a non-ipv4 address, we must DNS lookup the IPv4 equivalent
+    //              and map the address over.
+    resolveDestination(
+        ctx = ctx,
+        msg = msg,
+        addressType = addrType,
+        originalDestinationAddress = destinationAddr,
+        port = destinationPort,
+        onResolved = { destination ->
+          val bindAddress =
+              when (val type = resolveSocks5AddressType(destination)) {
+                Socks5AddressType.IPv4 -> "0.0.0.0"
+                Socks5AddressType.IPv6 -> "::"
+                else -> {
+                  Timber.w {
+                    "DROP: Unable to send datapacket upstream to invalid type address: $type $destination"
+                  }
+                  sendErrorAndClose(ctx, msg)
+                  return@resolveDestination
+                }
+              }
 
-      if (ipv4Address == null) {
-        Timber.w { "No IPv4 address could be found for dest=$destinationAddr" }
-        Timber.w { "Currently SOCKS5 UDP-ASSOCIATE proxy only works over IPv4" }
-        sendErrorAndClose(ctx, msg)
-        return
-      }
-
-      // Open a connection to the remote
-      destination = InetSocketAddress(ipv4Address, destinationPort)
-    } else {
-      // Open a connection to the remote
-      destination = InetSocketAddress(destinationAddr, destinationPort)
-    }
-
-    val bindAddress =
-        when (val type = resolveSocks5AddressType(destination)) {
-          Socks5AddressType.IPv4 -> "0.0.0.0"
-          Socks5AddressType.IPv6 -> "::"
-          else -> {
-            Timber.w {
-              "DROP: Unable to send datapacket upstream to invalid type address: $type $destination"
+          val serverChannel = ctx.channel()
+          val udpRelaySocket =
+              newDatagramServer(
+                  isDebug = isDebug,
+                  channel = serverChannel,
+                  hostName = bindAddress,
+                  socketTagger = socketTagger,
+                  androidPreferredNetwork = androidPreferredNetwork,
+                  onChannelOpened = { ch ->
+                    ch.pipeline()
+                        .addLast(
+                            UdpRelayUpstreamHandler(
+                                serverSocketTimeout = serverSocketTimeout,
+                                udpControlChannel = serverChannel,
+                                client = sentFrom,
+                                packet = DatagramPacket(data, destination),
+                            )
+                        )
+                  },
+              )
+          val outbound = udpRelaySocket.channel()
+          udpRelaySocket.addListener { future ->
+            if (!future.isSuccess) {
+              Timber.e(future.cause()) { "Failed to standup outbound connection!" }
+              sendErrorAndClose(ctx, msg)
+              return@addListener
             }
-            sendErrorAndClose(ctx, msg)
-            return
+
+            Timber.d { "Opened UDP relay outbound connection $outbound" }
+
+            // Don't assign the channel here as it can cause previous connections to close
+            // prematurely
+            // assignOutboundChannel(outbound)
+            allKnownOutbounds.update { it + outbound }
           }
-        }
-
-    val serverChannel = ctx.channel()
-    val udpRelaySocket =
-        newDatagramServer(
-            isDebug = isDebug,
-            channel = serverChannel,
-            hostName = bindAddress,
-            socketTagger = socketTagger,
-            androidPreferredNetwork = androidPreferredNetwork,
-            onChannelOpened = { ch ->
-              ch.pipeline()
-                  .addLast(
-                      UdpRelayUpstreamHandler(
-                          serverSocketTimeout = serverSocketTimeout,
-                          udpControlChannel = serverChannel,
-                          client = sentFrom,
-                          packet = DatagramPacket(data, destination),
-                      )
-                  )
-            },
-        )
-    val outbound = udpRelaySocket.channel()
-    udpRelaySocket.addListener { future ->
-      if (!future.isSuccess) {
-        Timber.e(future.cause()) { "Failed to standup outbound connection!" }
-        sendErrorAndClose(ctx, msg)
-        return@addListener
-      }
-
-      Timber.d { "Opened UDP relay outbound connection $outbound" }
-
-      // Don't assign the channel here as it can cause previous connections to close prematurely
-      // assignOutboundChannel(outbound)
-      allKnownOutbounds.update { it + outbound }
-    }
+        },
+    )
   }
 
   private fun readAddress(buf: ByteBuf, type: Socks5AddressType): String {
@@ -357,5 +417,61 @@ internal constructor(
       // Then close everyone
       closeChannels(ctx)
     }
+  }
+
+  companion object {
+
+    /** Actually drop the DNS caches */
+    internal fun dropCaches() {
+      REAL_DNS_CACHE.clear()
+      REAL_DNS_CNAME_CACHE.clear()
+      REAL_AUTHORITATIVE_SERVER_CACHE.clear()
+    }
+
+    // Re-use the same caches for all requests
+    private val REAL_DNS_CACHE = DefaultDnsCache()
+    private val DEFAULT_DNS_CACHE =
+        object : DnsCache by REAL_DNS_CACHE {
+
+          // Never allow clearing to always keep cache entries alive
+          override fun clear() {
+            Timber.w { "Clear is not supported for this DnsCache" }
+          }
+
+          override fun clear(hostname: String?): Boolean {
+            Timber.w { "Clear is not supported for this DnsCache(${hostname})" }
+            return false
+          }
+        }
+
+    private val REAL_DNS_CNAME_CACHE = DefaultDnsCnameCache()
+    private val DEFAULT_DNS_CNAME_CACHE =
+        object : DnsCnameCache by REAL_DNS_CNAME_CACHE {
+
+          // Never allow clearing to always keep cache entries alive
+          override fun clear() {
+            Timber.w { "Clear is not supported for this DnsCnameCache" }
+          }
+
+          override fun clear(hostname: String?): Boolean {
+            Timber.w { "Clear is not supported for this DnsCnameCache(${hostname})" }
+            return false
+          }
+        }
+
+    private val REAL_AUTHORITATIVE_SERVER_CACHE = DefaultAuthoritativeDnsServerCache()
+    private val DEFAULT_DNS_AUTHORITATIVE_SERVER_CACHE =
+        object : AuthoritativeDnsServerCache by REAL_AUTHORITATIVE_SERVER_CACHE {
+
+          // Never allow clearing to always keep cache entries alive
+          override fun clear() {
+            Timber.w { "Clear is not supported for this AuthoritativeDnsServerCache" }
+          }
+
+          override fun clear(hostname: String?): Boolean {
+            Timber.w { "Clear is not supported for this AuthoritativeDnsServerCache(${hostname})" }
+            return false
+          }
+        }
   }
 }

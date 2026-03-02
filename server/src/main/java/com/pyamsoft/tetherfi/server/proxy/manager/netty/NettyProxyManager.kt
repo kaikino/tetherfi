@@ -38,6 +38,7 @@ protected constructor(
       lock: Locker.Lock,
       onOpened: suspend () -> Unit,
       onClosing: suspend () -> Unit,
+      onClosed: () -> Unit,
       onError: suspend (Throwable) -> Unit,
   ) {
     val releaser = lock.acquire()
@@ -52,6 +53,7 @@ protected constructor(
                   network = network,
                   onOpened = onOpened,
                   onClosing = onClosing,
+                  onClosed = onClosed,
                   onError = onError,
               )
 
@@ -71,6 +73,7 @@ protected constructor(
       network: Network?,
       onOpened: suspend () -> Unit,
       onClosing: suspend () -> Unit,
+      onClosed: () -> Unit,
       onError: suspend (Throwable) -> Unit,
   ): SuspendingNettyProxy
 }

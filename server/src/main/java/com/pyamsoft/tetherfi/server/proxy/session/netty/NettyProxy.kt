@@ -19,11 +19,16 @@ package com.pyamsoft.tetherfi.server.proxy.session.netty
 import androidx.annotation.CheckResult
 import com.pyamsoft.tetherfi.core.Timber
 import com.pyamsoft.tetherfi.server.proxy.SocketTagger
+import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.socks.UdpRelayHandler
 import io.netty.bootstrap.ServerBootstrap
 import io.netty.channel.MultiThreadIoEventLoopGroup
 import io.netty.channel.nio.NioIoHandler
 import io.netty.channel.socket.SocketChannel
 import io.netty.channel.socket.nio.NioServerSocketChannel
+import io.netty.util.concurrent.Future
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.updateAndGet
 
 abstract class NettyProxy
 protected constructor(
@@ -32,8 +37,36 @@ protected constructor(
     private val port: Int,
     private val onOpened: () -> Unit,
     private val onClosing: () -> Unit,
+    private val onClosed: () -> Unit,
     private val onError: (Throwable) -> Unit,
 ) {
+
+  private fun proxyDead() {
+    clearDnsCache()
+
+    Timber.d { "Netty is completely shutdown!" }
+    onClosed()
+  }
+
+  private fun clearDnsCache() {
+    Timber.d { "Clear DNS caches" }
+    UdpRelayHandler.dropCaches()
+  }
+
+  private fun waitForDeath(
+      future: Future<*>,
+      thisState: MutableStateFlow<Boolean>,
+      otherState: StateFlow<Boolean>,
+  ) {
+    future.addListener { f ->
+      if (f.isDone) {
+        val dead = thisState.updateAndGet { true }
+        if (dead && otherState.value) {
+          proxyDead()
+        }
+      }
+    }
+  }
 
   @CheckResult
   fun start(): NettyServerStopper {
@@ -76,6 +109,13 @@ protected constructor(
               closeFuture().addListener {
                 Timber.d { "Netty server is closing!" }
                 onClosing()
+
+                val bossDead = MutableStateFlow(false)
+                val workerDead = MutableStateFlow(false)
+
+                // Wait for pools to actually be dead, not just "starting shutdown"
+                waitForDeath(bossGroup.terminationFuture(), bossDead, workerDead)
+                waitForDeath(workerGroup.terminationFuture(), workerDead, bossDead)
 
                 Timber.d { "Shutdown thread pools" }
                 bossGroup.shutdownGracefully()

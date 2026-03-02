@@ -29,6 +29,7 @@ internal interface ProxyManager {
       lock: Locker.Lock,
       onOpened: suspend () -> Unit,
       onClosing: suspend () -> Unit,
+      onClosed: () -> Unit,
       onError: suspend (Throwable) -> Unit,
   )
 

@@ -49,6 +49,7 @@ internal constructor(
     private val serverSocketTimeout: ServerSocketTimeout,
     onOpened: () -> Unit,
     onClosing: () -> Unit,
+    onClosed: () -> Unit,
     onError: (Throwable) -> Unit,
 ) :
     NettyProxy(
@@ -57,6 +58,7 @@ internal constructor(
         port = port,
         onOpened = onOpened,
         onClosing = onClosing,
+        onClosed = onClosed,
         onError = onError,
     ) {
 
