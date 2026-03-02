@@ -37,12 +37,6 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import io.netty.handler.codec.http.HttpServerCodec
 import io.netty.handler.codec.http.HttpVersion
 
-private data class HostAndPort(
-  val resolvedHostName: String,
-  val resolvedPort: Int,
-  val proxyCorrectedFilePath: String,
-)
-
 internal class Http1ProxyHandler internal constructor(
   socketTagger: SocketTagger,
   androidPreferredNetwork: Network?,
@@ -97,23 +91,11 @@ internal class Http1ProxyHandler internal constructor(
       // Tell proxy we've established connection
       val response = DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK)
 
-      ctx.writeAndFlush(response)
-
       // Enable auto-read once connection is established
       clientChannel.config().isAutoRead = true
 
-      // Hold onto this channel for future requests to immediately fire off to it
-      assignOutboundChannel(outbound)
-
-      // And then replay any previously seen messages that arrived BEFORE we were set up
-      // any future messages will go directly to the outbound now that the channel is held
-      replayQueuedMessages(outbound)
-
       // Drop down to raw TCP
       val pipeline = ctx.pipeline()
-
-      // Remove the http server codec
-      pipeline.dropHandler(HttpServerCodec::class)
 
       // Remove our own handler
       pipeline.dropHandler(this::class)
@@ -125,6 +107,19 @@ internal class Http1ProxyHandler internal constructor(
           outbound
         )
       )
+
+      // Then establish connection
+      ctx.writeAndFlush(response)
+
+      // Hold onto this channel for future requests to immediately fire off to it
+      assignOutboundChannel(outbound)
+
+      // And then replay any previously seen messages that arrived BEFORE we were set up
+      // any future messages will go directly to the outbound now that the channel is held
+      replayQueuedMessages(outbound)
+
+      // Remove the http server codec
+      pipeline.dropHandler(HttpServerCodec::class)
     }
   }
 
@@ -159,24 +154,11 @@ internal class Http1ProxyHandler internal constructor(
       // Adjust the URL to be relative to the new host
       msg.uri = parsed.proxyCorrectedFilePath
 
-      // Replay the initial request
-      outbound.writeAndFlush(msg)
-
       // Enable auto-read once connection is established
       clientChannel.config().isAutoRead = true
 
-      // Hold onto this channel for future requests to immediately fire off to it
-      assignOutboundChannel(outbound)
-
-      // And then replay any previously seen messages that arrived BEFORE we were set up
-      // any future messages will go directly to the outbound now that the channel is held
-      replayQueuedMessages(outbound)
-
       // Drop down to raw TCP
       val pipeline = ctx.pipeline()
-
-      // Remove the http server codec
-      pipeline.dropHandler(HttpServerCodec::class)
 
       // Remove our own handler
       pipeline.dropHandler(this::class)
@@ -188,6 +170,19 @@ internal class Http1ProxyHandler internal constructor(
           outbound
         )
       )
+
+      // Replay the initial request
+      outbound.writeAndFlush(msg)
+
+      // Hold onto this channel for future requests to immediately fire off to it
+      assignOutboundChannel(outbound)
+
+      // And then replay any previously seen messages that arrived BEFORE we were set up
+      // any future messages will go directly to the outbound now that the channel is held
+      replayQueuedMessages(outbound)
+
+      // Remove the http server codec
+      pipeline.dropHandler(HttpServerCodec::class)
     }
   }
 
@@ -212,7 +207,7 @@ internal class Http1ProxyHandler internal constructor(
     private const val HTTPS_PREFIX = "https://"
 
     @CheckResult
-    private fun parseUriAndPort(uri: String, defaultPort: Int): HostAndPort? {
+    private fun parseUriAndPort(uri: String, defaultPort: Int): HttpHostAndPort? {
       if (uri.isBlank()) {
         Timber.w { "No URI without schema from: $uri" }
         return null
@@ -271,7 +266,7 @@ internal class Http1ProxyHandler internal constructor(
         path = hostAndMaybePath.substring(pathStartIndex + 1).ifBlank { "/" }
       }
 
-      return HostAndPort(
+      return HttpHostAndPort(
         resolvedHostName = host,
         resolvedPort = port,
         proxyCorrectedFilePath = path,
