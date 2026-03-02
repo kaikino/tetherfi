@@ -29,9 +29,9 @@ import java.util.concurrent.TimeUnit
 
 internal class RelayHandler
 internal constructor(
-  private val id: String,
-  private val writeToChannel: Channel,
-  private val serverSocketTimeout: ServerSocketTimeout,
+    private val id: String,
+    private val writeToChannel: Channel,
+    private val serverSocketTimeout: ServerSocketTimeout,
 ) : ChannelInboundHandlerAdapter() {
 
   override fun channelRegistered(ctx: ChannelHandlerContext) {

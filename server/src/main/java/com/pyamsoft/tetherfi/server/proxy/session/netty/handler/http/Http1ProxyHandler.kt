@@ -39,24 +39,24 @@ import io.netty.handler.codec.http.HttpVersion
 
 internal class Http1ProxyHandler
 internal constructor(
-  socketTagger: SocketTagger,
-  androidPreferredNetwork: Network?,
-  isDebug: Boolean,
-  serverSocketTimeout: ServerSocketTimeout,
+    socketTagger: SocketTagger,
+    androidPreferredNetwork: Network?,
+    isDebug: Boolean,
+    serverSocketTimeout: ServerSocketTimeout,
 ) :
-  DefaultProxyHandler(
-    socketTagger = socketTagger,
-    androidPreferredNetwork = androidPreferredNetwork,
-    isDebug = isDebug,
-    serverSocketTimeout = serverSocketTimeout,
-  ) {
+    DefaultProxyHandler(
+        socketTagger = socketTagger,
+        androidPreferredNetwork = androidPreferredNetwork,
+        isDebug = isDebug,
+        serverSocketTimeout = serverSocketTimeout,
+    ) {
 
   @CheckResult
   private fun createHttpErrorResponse(): HttpResponse {
     return DefaultFullHttpResponse(
-      HttpVersion.HTTP_1_1,
-      HttpResponseStatus.BAD_GATEWAY,
-      Unpooled.EMPTY_BUFFER,
+        HttpVersion.HTTP_1_1,
+        HttpResponseStatus.BAD_GATEWAY,
+        Unpooled.EMPTY_BUFFER,
     )
   }
 
@@ -74,26 +74,27 @@ internal constructor(
     val clientChannel = ctx.channel()
 
     val future =
-      newOutboundConnection(
-        isDebug = isDebug,
-        channel = clientChannel,
-        hostName = parsed.resolvedHostName,
-        port = parsed.resolvedPort,
-        socketTagger = socketTagger,
-        androidPreferredNetwork = androidPreferredNetwork,
-        onChannelOpened = { ch ->
-          val pipeline = ch.pipeline()
+        newOutboundConnection(
+            isDebug = isDebug,
+            channel = clientChannel,
+            hostName = parsed.resolvedHostName,
+            port = parsed.resolvedPort,
+            socketTagger = socketTagger,
+            androidPreferredNetwork = androidPreferredNetwork,
+            onChannelOpened = { ch ->
+              val pipeline = ch.pipeline()
 
-          // Read from the REMOTE and send back to the PROXY
-          pipeline.addLast(
-            RelayHandler(
-              id = "HTTPS-CONNECT-INBOUND-${parsed.resolvedHostName}:${parsed.resolvedPort}",
-              writeToChannel = clientChannel,
-              serverSocketTimeout = serverSocketTimeout,
-            )
-          )
-        }
-      )
+              // Read from the REMOTE and send back to the PROXY
+              pipeline.addLast(
+                  RelayHandler(
+                      id =
+                          "HTTPS-CONNECT-INBOUND-${parsed.resolvedHostName}:${parsed.resolvedPort}",
+                      writeToChannel = clientChannel,
+                      serverSocketTimeout = serverSocketTimeout,
+                  )
+              )
+            },
+        )
     val outbound = future.channel()
     future.addListener { future ->
       if (!future.isSuccess) {
@@ -116,11 +117,11 @@ internal constructor(
 
       // Read from the PROXY and send to the remote
       pipeline.addLast(
-        RelayHandler(
-          id = "HTTPS-CONNECT-OUTBOUND-${parsed.resolvedHostName}:${parsed.resolvedPort}",
-          writeToChannel = outbound,
-          serverSocketTimeout = serverSocketTimeout,
-        )
+          RelayHandler(
+              id = "HTTPS-CONNECT-OUTBOUND-${parsed.resolvedHostName}:${parsed.resolvedPort}",
+              writeToChannel = outbound,
+              serverSocketTimeout = serverSocketTimeout,
+          )
       )
 
       // Then establish connection
@@ -142,29 +143,29 @@ internal constructor(
     val clientChannel = ctx.channel()
 
     val future =
-      newOutboundConnection(
-        isDebug = isDebug,
-        channel = clientChannel,
-        hostName = parsed.resolvedHostName,
-        port = parsed.resolvedPort,
-        socketTagger = socketTagger,
-        androidPreferredNetwork = androidPreferredNetwork,
-        onChannelOpened = { ch ->
-          val pipeline = ch.pipeline()
+        newOutboundConnection(
+            isDebug = isDebug,
+            channel = clientChannel,
+            hostName = parsed.resolvedHostName,
+            port = parsed.resolvedPort,
+            socketTagger = socketTagger,
+            androidPreferredNetwork = androidPreferredNetwork,
+            onChannelOpened = { ch ->
+              val pipeline = ch.pipeline()
 
-          // Must speak HTTP to replay the initial message
-          pipeline.addLast(HttpClientCodec())
+              // Must speak HTTP to replay the initial message
+              pipeline.addLast(HttpClientCodec())
 
-          // Read from the REMOTE and send back to the PROXY
-          pipeline.addLast(
-            RelayHandler(
-              id = "HTTP-FORWARD-INBOUND-${parsed.resolvedHostName}:${parsed.resolvedPort}",
-              writeToChannel = clientChannel,
-              serverSocketTimeout = serverSocketTimeout,
-            )
-          )
-        },
-      )
+              // Read from the REMOTE and send back to the PROXY
+              pipeline.addLast(
+                  RelayHandler(
+                      id = "HTTP-FORWARD-INBOUND-${parsed.resolvedHostName}:${parsed.resolvedPort}",
+                      writeToChannel = clientChannel,
+                      serverSocketTimeout = serverSocketTimeout,
+                  )
+              )
+            },
+        )
 
     val outbound = future.channel()
     future.addListener { future ->
@@ -188,11 +189,11 @@ internal constructor(
 
       // Read from the PROXY and send to REMOTE
       pipeline.addLast(
-        RelayHandler(
-          id = "HTTP-FORWARD-OUTBOUND-${parsed.resolvedHostName}:${parsed.resolvedPort}",
-          writeToChannel = outbound,
-          serverSocketTimeout = serverSocketTimeout,
-        )
+          RelayHandler(
+              id = "HTTP-FORWARD-OUTBOUND-${parsed.resolvedHostName}:${parsed.resolvedPort}",
+              writeToChannel = outbound,
+              serverSocketTimeout = serverSocketTimeout,
+          )
       )
 
       // Replay the initial request
@@ -277,7 +278,7 @@ internal constructor(
       // Port must look like a port
       val portString = hostAndPort.getOrNull(1)
       val port =
-        if (portString.isNullOrBlank()) fallbackPort else portString.toIntOrNull() ?: fallbackPort
+          if (portString.isNullOrBlank()) fallbackPort else portString.toIntOrNull() ?: fallbackPort
 
       // Find the first slash to start the path
       val pathStartIndex = hostAndMaybePath.indexOf("/")
@@ -294,9 +295,9 @@ internal constructor(
       }
 
       return HttpHostAndPort(
-        resolvedHostName = host,
-        resolvedPort = port,
-        proxyCorrectedFilePath = path,
+          resolvedHostName = host,
+          resolvedPort = port,
+          proxyCorrectedFilePath = path,
       )
     }
   }
