@@ -21,7 +21,7 @@ import androidx.annotation.CheckResult
 import com.pyamsoft.tetherfi.core.Timber
 import com.pyamsoft.tetherfi.server.ServerSocketTimeout
 import com.pyamsoft.tetherfi.server.proxy.SocketTagger
-import com.pyamsoft.tetherfi.server.proxy.session.netty.dropHandler
+import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.dropHandler
 import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.DefaultProxyHandler
 import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.RelayHandler
 import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.flushAndClose
@@ -62,7 +62,7 @@ internal constructor(
       Timber.d { "Re-assigning outbound channel $old -> $channel" }
       if (old.isActive) {
         Timber.d { "Close old outbound channel $old" }
-        flushAndClose(old)
+        old.flushAndClose()
       }
     }
 
@@ -144,7 +144,8 @@ internal constructor(
     val outbound = future.channel()
 
     // When this socket closes, close the outbound
-    serverChannel.closeFuture().addListener { flushAndClose(outbound) }
+    serverChannel.closeFuture().addListener { outbound.flushAndClose() }
+    outbound.closeFuture().addListener { serverChannel.flushAndClose() }
 
     future.addListener { future ->
       if (!future.isSuccess) {
@@ -220,7 +221,8 @@ internal constructor(
     val outbound = future.channel()
 
     // When this socket closes, close the outbound
-    serverChannel.closeFuture().addListener { flushAndClose(outbound) }
+    serverChannel.closeFuture().addListener { outbound.flushAndClose() }
+    outbound.closeFuture().addListener { serverChannel.flushAndClose() }
 
     future.addListener { future ->
       if (!future.isSuccess) {
@@ -283,7 +285,7 @@ internal constructor(
     Timber.d { "Clear pending message queue" }
     messageQueue.clear()
 
-    outboundChannel?.also { flushAndClose(it) }
+    outboundChannel?.flushAndClose()
     outboundChannel = null
   }
 

@@ -21,37 +21,26 @@ import com.pyamsoft.tetherfi.server.ServerSocketTimeout
 import io.netty.buffer.ByteBuf
 import io.netty.channel.Channel
 import io.netty.channel.ChannelHandlerContext
-import io.netty.channel.ChannelInboundHandlerAdapter
-import io.netty.handler.timeout.IdleState
-import io.netty.handler.timeout.IdleStateEvent
-import io.netty.handler.timeout.IdleStateHandler
-import java.util.concurrent.TimeUnit
 
 internal class RelayHandler
 internal constructor(
-    private val id: String,
-    private val writeToChannel: Channel,
-    private val serverSocketTimeout: ServerSocketTimeout,
-) : ChannelInboundHandlerAdapter() {
+  serverSocketTimeout: ServerSocketTimeout,
+  id: String,
+  private val writeToChannel: Channel,
+) : DefaultProxyHandler(
+  serverSocketTimeout = serverSocketTimeout,
+) {
 
-  override fun channelRegistered(ctx: ChannelHandlerContext) {
-    val timeout = serverSocketTimeout.timeoutDuration
-    if (timeout.isInfinite()) {
-      Timber.d { "Not adding idle timeout, infinite timeout configured!" }
-    } else {
-      Timber.d { "Add idle timeout handler $timeout" }
-      ctx.pipeline()
-          .addFirst(IdleStateHandler(0, 0, timeout.inWholeMilliseconds, TimeUnit.MILLISECONDS))
-    }
+  init {
+    setChannelId(id)
   }
 
-  override fun userEventTriggered(ctx: ChannelHandlerContext, evt: Any) {
-    if (evt is IdleStateEvent) {
-      if (evt.state() == IdleState.ALL_IDLE) {
-        Timber.d { "Closing idle connection: $ctx $evt" }
-        flushAndClose(ctx.channel())
-      }
-    }
+  override fun onCloseChannels(ctx: ChannelHandlerContext) {
+  }
+
+  override fun sendErrorAndClose(ctx: ChannelHandlerContext, msg: Any) {
+    // Can't do as this is a bytes based implementation
+    Timber.w { "(${channelId}) Can't send generic error on RelayHandler" }
   }
 
   override fun channelRead(ctx: ChannelHandlerContext, msg: Any) {
@@ -72,27 +61,10 @@ internal constructor(
   override fun channelWritabilityChanged(ctx: ChannelHandlerContext) {
     try {
       val isWritable = ctx.channel().isWritable
-      Timber.d { "($id) Relay write changed: $ctx $isWritable" }
+      Timber.d { "($channelId) Relay write changed: $ctx $isWritable" }
       writeToChannel.config().isAutoRead = isWritable
     } finally {
-      ctx.fireChannelWritabilityChanged()
-    }
-  }
-
-  override fun channelInactive(ctx: ChannelHandlerContext) {
-    try {
-      Timber.d { "($id) Close inactive relay channel: $ctx" }
-    } finally {
-      flushAndClose(ctx.channel())
-      flushAndClose(writeToChannel)
-    }
-  }
-
-  override fun exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {
-    try {
-      Timber.e(cause) { "($id) RelayChannel exception caught $ctx" }
-    } finally {
-      flushAndClose(ctx.channel())
+      super.channelWritabilityChanged(ctx)
     }
   }
 }

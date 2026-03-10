@@ -149,7 +149,7 @@ internal constructor(
     val outbound = udpFuture.channel()
 
     // When this socket closes, close the outbound
-    serverChannel.closeFuture().addListener { flushAndClose(outbound) }
+    serverChannel.closeFuture().addListener { outbound.flushAndClose() }
 
     udpFuture.addListener { future ->
       if (!future.isSuccess) {
@@ -160,7 +160,6 @@ internal constructor(
       }
 
       val packet = DatagramPacket(data, destination)
-      Timber.d { "(${channelId}) Opened UDP relay outbound connection $outbound" }
       outbound.writeAndFlush(packet).addListener { packet.release() }
     }
   }
@@ -243,7 +242,7 @@ internal constructor(
 
   override fun onCloseChannels(ctx: ChannelHandlerContext) {
     // Clear the map so that we can close any UDP upstream connections
-    upstreamMap.forEach { (_, udp) -> flushAndClose(udp.upstreamFuture.channel()) }
+    upstreamMap.forEach { (_, udp) -> udp.upstreamFuture.channel().flushAndClose() }
     upstreamMap.clear()
   }
 

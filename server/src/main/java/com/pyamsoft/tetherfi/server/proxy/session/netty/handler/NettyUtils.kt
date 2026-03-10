@@ -21,15 +21,17 @@ import androidx.annotation.CheckResult
 import com.pyamsoft.tetherfi.core.Timber
 import com.pyamsoft.tetherfi.server.ServerSocketTimeout
 import com.pyamsoft.tetherfi.server.proxy.SocketTagger
-import com.pyamsoft.tetherfi.server.proxy.session.netty.NetworkBoundDatagramChannelFactory
-import com.pyamsoft.tetherfi.server.proxy.session.netty.NetworkBoundSocketChannelFactory
+import com.pyamsoft.tetherfi.server.proxy.session.netty.factory.NetworkBoundDatagramChannelFactory
+import com.pyamsoft.tetherfi.server.proxy.session.netty.factory.NetworkBoundSocketChannelFactory
 import io.netty.bootstrap.Bootstrap
 import io.netty.buffer.Unpooled
 import io.netty.channel.Channel
 import io.netty.channel.ChannelFuture
 import io.netty.channel.ChannelFutureListener
+import io.netty.channel.ChannelHandler
 import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.ChannelInitializer
+import io.netty.channel.ChannelPipeline
 import io.netty.channel.EventLoop
 import io.netty.handler.logging.LogLevel
 import io.netty.handler.logging.LoggingHandler
@@ -37,12 +39,7 @@ import io.netty.handler.timeout.IdleState
 import io.netty.handler.timeout.IdleStateEvent
 import io.netty.handler.timeout.IdleStateHandler
 import java.util.concurrent.TimeUnit
-
-internal fun flushAndClose(channel: Channel) {
-  if (channel.isOpen) {
-    channel.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE)
-  }
-}
+import kotlin.reflect.KClass
 
 @CheckResult
 private fun createOutboundChannel(
@@ -194,4 +191,24 @@ internal inline fun ChannelHandlerContext.handleIdleState(
       block()
     }
   }
+}
+
+internal fun <T : ChannelHandler> ChannelPipeline.dropHandler(c: KClass<T>) {
+  val self = this
+  val javaClass = c.java
+  if (self.get(javaClass) != null) {
+    self.remove(javaClass)
+  }
+}
+
+internal fun Channel.flushAndClose() {
+  val self = this
+  if (self.isOpen) {
+    self.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE)
+  }
+}
+
+internal fun ChannelHandlerContext.flushAndClose() {
+  val self = this
+  self.channel().flushAndClose()
 }

@@ -35,7 +35,7 @@ internal abstract class ProxyHandler internal constructor() : ChannelInboundHand
     val channel = ctx.channel()
     if (channel.isOpen) {
       Timber.d { "close owner channel $channel" }
-      flushAndClose(channel)
+      channel.flushAndClose()
     }
   }
 

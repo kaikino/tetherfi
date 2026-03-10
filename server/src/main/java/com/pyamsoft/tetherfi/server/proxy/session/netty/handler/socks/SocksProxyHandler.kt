@@ -21,7 +21,7 @@ import androidx.annotation.CheckResult
 import com.pyamsoft.tetherfi.core.Timber
 import com.pyamsoft.tetherfi.server.ServerSocketTimeout
 import com.pyamsoft.tetherfi.server.proxy.SocketTagger
-import com.pyamsoft.tetherfi.server.proxy.session.netty.dropHandler
+import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.dropHandler
 import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.DefaultProxyHandler
 import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.RelayHandler
 import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.flushAndClose
@@ -113,7 +113,8 @@ internal constructor(
     val outbound = connectSocket.channel()
 
     // When this socket closes, close the outbound
-    serverChannel.closeFuture().addListener { flushAndClose(outbound) }
+    serverChannel.closeFuture().addListener { outbound.flushAndClose() }
+    outbound.closeFuture().addListener { serverChannel.flushAndClose() }
 
     connectSocket.addListener { future ->
       if (!future.isSuccess) {

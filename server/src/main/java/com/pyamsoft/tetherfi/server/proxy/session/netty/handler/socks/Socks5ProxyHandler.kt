@@ -22,7 +22,7 @@ import com.pyamsoft.pydroid.core.cast
 import com.pyamsoft.tetherfi.core.Timber
 import com.pyamsoft.tetherfi.server.ServerSocketTimeout
 import com.pyamsoft.tetherfi.server.proxy.SocketTagger
-import com.pyamsoft.tetherfi.server.proxy.session.netty.dropHandler
+import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.dropHandler
 import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.newDatagramServer
 import io.ktor.util.network.address
 import io.ktor.util.network.port
@@ -146,7 +146,6 @@ internal constructor(
 
       // Tell proxy we've established connection so that NOW we can relay
       val type = resolveSocks5AddressType(relayControlAddress)
-      Timber.d { "Open UDP Relay: ${type} $relayControl" }
       ctx.writeAndFlush(
           DefaultSocks5CommandResponse(
               Socks5CommandStatus.SUCCESS,

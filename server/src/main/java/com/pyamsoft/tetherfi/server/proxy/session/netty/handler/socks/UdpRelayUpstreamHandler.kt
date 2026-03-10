@@ -92,7 +92,7 @@ internal constructor(
 
   override fun sendErrorAndClose(ctx: ChannelHandlerContext, msg: Any) {
     // Do not send any unexpected traffic over this pipe
-    flushAndClose(ctx.channel())
+    ctx.flushAndClose()
   }
 
   override fun channelRead(ctx: ChannelHandlerContext, msg: Any) {

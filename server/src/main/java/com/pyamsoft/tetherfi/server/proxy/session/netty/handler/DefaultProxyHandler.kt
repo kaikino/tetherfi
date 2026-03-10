@@ -63,5 +63,5 @@ internal constructor(
     }
   }
 
-  protected abstract fun onChannelActive(ctx: ChannelHandlerContext)
+  protected open fun onChannelActive(ctx: ChannelHandlerContext) {}
 }
