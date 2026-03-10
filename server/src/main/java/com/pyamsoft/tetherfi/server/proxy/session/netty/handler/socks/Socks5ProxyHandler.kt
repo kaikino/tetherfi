@@ -23,6 +23,7 @@ import com.pyamsoft.tetherfi.core.Timber
 import com.pyamsoft.tetherfi.server.ServerSocketTimeout
 import com.pyamsoft.tetherfi.server.proxy.SocketTagger
 import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.dropHandler
+import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.flushAndClose
 import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.newDatagramServer
 import io.ktor.util.network.address
 import io.ktor.util.network.port
@@ -85,19 +86,19 @@ internal constructor(
       ctx: ChannelHandlerContext,
       msg: Socks5CommandRequest,
   ) {
-    val channel = ctx.channel()
+    val serverChannel = ctx.channel()
 
-    val clientAddress = channel.remoteAddress().cast<InetSocketAddress>()
+    val clientAddress = serverChannel.remoteAddress().cast<InetSocketAddress>()
     if (clientAddress == null) {
       Timber.w { "SOCKS client remote==null" }
       sendFailureAndClose(ctx, msg)
       return
     }
 
-    val updControlSocket =
+    val controlFuture =
         newDatagramServer(
             isDebug = isDebug,
-            channel = channel,
+            channel = serverChannel,
             hostName = serverHostName,
             socketTagger = socketTagger,
             androidPreferredNetwork = androidPreferredNetwork,
@@ -110,12 +111,18 @@ internal constructor(
                       androidPreferredNetwork = androidPreferredNetwork,
                       serverSocketTimeout = serverSocketTimeout,
                       clock = clock,
-                      tcpControlChannel = channel,
+                      tcpControlChannel = serverChannel,
                   )
               )
         }
-    val controlSocket = updControlSocket.channel()
-    updControlSocket.addListener { future ->
+
+    val controlSocket = controlFuture.channel()
+
+    // When this socket closes, close the outbound
+    serverChannel.closeFuture().addListener { controlSocket.flushAndClose() }
+    controlSocket.closeFuture().addListener { serverChannel.flushAndClose() }
+
+    controlFuture.addListener { future ->
       if (!future.isSuccess) {
         Timber.e(future.cause()) { "SOCKS UDP-ASSOC proxied outbound failed" }
         sendFailureAndClose(ctx, msg)

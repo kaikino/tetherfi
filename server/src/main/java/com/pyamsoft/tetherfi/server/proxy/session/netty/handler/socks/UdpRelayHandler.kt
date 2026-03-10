@@ -156,6 +156,7 @@ internal constructor(
 
     // When this socket closes, close the outbound
     serverChannel.closeFuture().addListener { outbound.flushAndClose() }
+    // NOTE(Peter): DO NOT close the relay socket in case we will use it for another attempt
 
     udpFuture.addListener { future ->
       if (!future.isSuccess) {
