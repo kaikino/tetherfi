@@ -158,6 +158,6 @@ internal constructor(
   protected abstract fun sendFailureAndClose(ctx: ChannelHandlerContext, msg: T)
 
   companion object {
-    protected val VALID_PORT_RANGE = 1..<65535
+    private val VALID_PORT_RANGE = 1..<65535
   }
 }
