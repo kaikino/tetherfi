@@ -18,15 +18,19 @@ package com.pyamsoft.tetherfi.server.proxy.session.netty
 
 import android.net.Network
 import com.pyamsoft.tetherfi.server.ServerSocketTimeout
+import com.pyamsoft.tetherfi.server.clients.AllowedClients
+import com.pyamsoft.tetherfi.server.clients.BlockedClients
+import com.pyamsoft.tetherfi.server.clients.ClientResolver
 import com.pyamsoft.tetherfi.server.proxy.SocketTagger
-import java.time.Clock
 
 /** Run this with a completely new [com.pyamsoft.tetherfi.server.proxy.manager.ProxyManager] */
 class SuspendingNettyDelegatingProxy(
     isDebug: Boolean,
     host: String,
     port: Int,
-    clock: Clock,
+    blockedClients: BlockedClients,
+    clientResolver: ClientResolver,
+    allowedClients: AllowedClients,
     socketTagger: SocketTagger,
     androidPreferredNetwork: Network?,
     isHttpEnabled: Boolean,
@@ -41,9 +45,11 @@ class SuspendingNettyDelegatingProxy(
   private val proxy by lazy {
     NettyDelegatingProxy(
         isDebug = isDebug,
-        clock = clock,
         host = host,
         port = port,
+        clientResolver = clientResolver,
+        blockedClients = blockedClients,
+        allowedClients = allowedClients,
         socketTagger = socketTagger,
         androidPreferredNetwork = androidPreferredNetwork,
         isHttpEnabled = isHttpEnabled,

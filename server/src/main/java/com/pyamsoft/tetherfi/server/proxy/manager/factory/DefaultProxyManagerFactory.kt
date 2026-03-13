@@ -26,6 +26,9 @@ import com.pyamsoft.tetherfi.server.ProxyPreferences
 import com.pyamsoft.tetherfi.server.ServerInternalApi
 import com.pyamsoft.tetherfi.server.SocketCreator
 import com.pyamsoft.tetherfi.server.broadcast.BroadcastNetworkStatus
+import com.pyamsoft.tetherfi.server.clients.AllowedClients
+import com.pyamsoft.tetherfi.server.clients.BlockedClients
+import com.pyamsoft.tetherfi.server.clients.ClientResolver
 import com.pyamsoft.tetherfi.server.event.ServerStopRequestEvent
 import com.pyamsoft.tetherfi.server.network.SocketBinder
 import com.pyamsoft.tetherfi.server.proxy.ServerDispatcher
@@ -36,7 +39,6 @@ import com.pyamsoft.tetherfi.server.proxy.manager.TcpProxyManager
 import com.pyamsoft.tetherfi.server.proxy.manager.netty.NettyDelegatingProxyManager
 import com.pyamsoft.tetherfi.server.proxy.session.ProxySession
 import com.pyamsoft.tetherfi.server.proxy.session.tcp.TcpProxyData
-import java.time.Clock
 import javax.inject.Inject
 import javax.inject.Named
 import kotlin.time.Duration.Companion.seconds
@@ -53,13 +55,15 @@ internal constructor(
     @param:Named("app_scope") private val appScope: CoroutineScope,
     @param:Named("http") private val httpSession: ProxySession<TcpProxyData>,
     @param:Named("socks") private val socksSession: ProxySession<TcpProxyData>,
-    private val clock: Clock,
     private val expertPreferences: ExpertPreferences,
     private val socketTagger: SocketTagger,
     private val enforcer: ThreadEnforcer,
     private val proxyPreferences: ProxyPreferences,
     private val appEnvironment: AppDevEnvironment,
     private val serverStopConsumer: EventConsumer<ServerStopRequestEvent>,
+    private val blockedClients: BlockedClients,
+    private val clientResolver: ClientResolver,
+    private val allowedClients: AllowedClients,
 ) : ProxyManager.Factory {
 
   @CheckResult
@@ -107,7 +111,9 @@ internal constructor(
     Timber.d { "Using new Netty server" }
     return NettyDelegatingProxyManager(
         isDebug = isDebug,
-        clock = clock,
+        blockedClients = blockedClients,
+        allowedClients = allowedClients,
+        clientResolver = clientResolver,
         socketBinder = socketBinder,
         socketTagger = socketTagger,
         isHttpEnabled = isHttpEnabled,

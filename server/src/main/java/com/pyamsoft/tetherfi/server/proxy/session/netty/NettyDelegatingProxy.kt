@@ -20,6 +20,9 @@ import android.net.Network
 import com.pyamsoft.pydroid.core.requireNotNull
 import com.pyamsoft.tetherfi.core.Timber
 import com.pyamsoft.tetherfi.server.ServerSocketTimeout
+import com.pyamsoft.tetherfi.server.clients.AllowedClients
+import com.pyamsoft.tetherfi.server.clients.BlockedClients
+import com.pyamsoft.tetherfi.server.clients.ClientResolver
 import com.pyamsoft.tetherfi.server.proxy.SocketTagger
 import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.ProtocolDelegatingHandler
 import com.pyamsoft.tetherfi.server.proxy.session.netty.handler.channel.ChannelCreator
@@ -30,21 +33,21 @@ import io.netty.channel.EventLoopGroup
 import io.netty.channel.socket.SocketChannel
 import io.netty.handler.logging.LogLevel
 import io.netty.handler.logging.LoggingHandler
-import java.time.Clock
 import kotlinx.coroutines.CoroutineScope
 
 class NettyDelegatingProxy
 internal constructor(
-    // TODO Unused? Do we need a clock for timings?
-    private val clock: Clock,
     host: String,
+    port: Int,
+    private val blockedClients: BlockedClients,
+    private val clientResolver: ClientResolver,
+    private val allowedClients: AllowedClients,
     private val isDebug: Boolean,
     private val socketTagger: SocketTagger,
     private val androidPreferredNetwork: Network?,
     private val isHttpEnabled: Boolean,
     private val isSocksEnabled: Boolean,
     private val serverSocketTimeout: ServerSocketTimeout,
-    port: Int,
     onOpened: () -> Unit,
     onClosing: () -> Unit,
     onClosed: () -> Unit,

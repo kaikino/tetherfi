@@ -19,18 +19,22 @@ package com.pyamsoft.tetherfi.server.proxy.manager.netty
 import android.net.Network
 import com.pyamsoft.tetherfi.server.ServerSocketTimeout
 import com.pyamsoft.tetherfi.server.broadcast.BroadcastNetworkStatus
+import com.pyamsoft.tetherfi.server.clients.AllowedClients
+import com.pyamsoft.tetherfi.server.clients.BlockedClients
+import com.pyamsoft.tetherfi.server.clients.ClientResolver
 import com.pyamsoft.tetherfi.server.network.SocketBinder
 import com.pyamsoft.tetherfi.server.proxy.SocketTagger
 import com.pyamsoft.tetherfi.server.proxy.session.netty.SuspendingNettyDelegatingProxy
 import com.pyamsoft.tetherfi.server.proxy.session.netty.SuspendingNettyProxy
-import java.time.Clock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 internal class NettyDelegatingProxyManager
 internal constructor(
     socketBinder: SocketBinder,
-    private val clock: Clock,
+    private val blockedClients: BlockedClients,
+    private val clientResolver: ClientResolver,
+    private val allowedClients: AllowedClients,
     private val isDebug: Boolean,
     private val socketTagger: SocketTagger,
     private val hostConnection: BroadcastNetworkStatus.ConnectionInfo.Connected,
@@ -54,7 +58,9 @@ internal constructor(
   ): SuspendingNettyProxy {
     return SuspendingNettyDelegatingProxy(
         isDebug = isDebug,
-        clock = clock,
+        blockedClients = blockedClients,
+        allowedClients = allowedClients,
+        clientResolver = clientResolver,
         host = hostConnection.hostName,
         port = port,
         socketTagger = socketTagger,
