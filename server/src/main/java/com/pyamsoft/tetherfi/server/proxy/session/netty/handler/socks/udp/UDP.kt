@@ -183,6 +183,7 @@ object UDP {
           Timber.e(future.cause()) {
             "Failed to resolve address for UDP unwrap: ${destinationAddr}:${destinationPort}"
           }
+          data.release()
           onError()
           return@addListener
         }
@@ -192,6 +193,7 @@ object UDP {
           Timber.w {
             "Resolved future returned NULL for udp unwrap: ${destinationAddr}:${destinationPort}"
           }
+          data.release()
           onError()
           return@addListener
         }
